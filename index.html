@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTML File Manager</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #e6e8ee;
+    --muted: #8a93a6; --accent: #6aa9ff; --accent-bg: #1b2a44; --danger: #ff7b7b;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f5f6f8; --panel: #fff; --line: #dde0e6; --text: #1b1e25;
+            --muted: #667085; --accent: #1f6feb; --accent-bg: #e6f0ff; --danger: #c62828; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+           background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .repo { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+  button, input { font: inherit; color: inherit; }
+  button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+           padding: 6px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; border-color: var(--line); }
+  input[type=text], input[type=password] { background: var(--bg); border: 1px solid var(--line);
+           border-radius: 6px; padding: 7px 10px; width: 100%; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  main { flex: 1; display: flex; min-height: 0; }
+  aside { width: 340px; min-width: 240px; border-right: 1px solid var(--line);
+          display: flex; flex-direction: column; background: var(--panel); }
+  .search { padding: 10px; border-bottom: 1px solid var(--line); }
+  .count { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  #list { flex: 1; overflow: auto; padding: 6px; }
+  .folder { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+            padding: 10px 8px 4px; word-break: break-all; }
+  .item { display: block; width: 100%; text-align: left; border: 0; border-radius: 6px;
+          padding: 7px 8px; background: none; word-break: break-all; }
+  .item:hover { background: var(--bg); }
+  .item.active { background: var(--accent-bg); color: var(--accent); }
+  .item mark { background: none; color: var(--accent); font-weight: 600; }
+  section { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+         border-bottom: 1px solid var(--line); background: var(--panel); }
+  .bar .path { flex: 1; color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace;
+               font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #stage { flex: 1; position: relative; background: #fff; }
+  iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+  .empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+           color: var(--muted); padding: 20px; background: var(--bg); }
+  .msg { padding: 14px; color: var(--muted); }
+  .msg.err { color: var(--danger); }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+           border-radius: 10px; padding: 18px; width: min(460px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.5); }
+  dialog label { display: block; margin: 12px 0 4px; font-size: 12px; color: var(--muted); }
+  dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  dialog .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  @media (max-width: 720px) {
+    main { flex-direction: column; }
+    aside { width: 100%; height: 40%; border-right: 0; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>HTML File Manager</h1>
+  <span class="repo" id="repoLabel"></span>
+  <span class="spacer"></span>
+  <button id="refreshBtn" title="Reload file list">Refresh</button>
+  <button id="settingsBtn">Settings</button>
+</header>
+
+<main>
+  <aside>
+    <div class="search">
+      <input type="text" id="q" placeholder="Search files…  (press / to focus)" autocomplete="off">
+      <div class="count" id="count"></div>
+    </div>
+    <div id="list"><div class="msg">Loading…</div></div>
+  </aside>
+
+  <section>
+    <div class="bar">
+      <span class="path" id="curPath">No file selected</span>
+      <button id="reloadBtn" disabled>Reload</button>
+      <button id="tabBtn" disabled>Open in new tab</button>
+    </div>
+    <div id="stage">
+      <div class="empty" id="empty">Pick an HTML file from the list to run it here.</div>
+      <iframe id="frame" hidden
+        sandbox="allow-scripts allow-forms allow-modals allow-popups allow-same-origin allow-downloads"></iframe>
+    </div>
+  </section>
+</main>
+
+<dialog id="settings">
+  <h2 style="margin:0 0 4px;font-size:16px">Settings</h2>
+  <label for="sOwner">Owner</label>
+  <input type="text" id="sOwner" placeholder="your-username">
+  <label for="sRepo">Repository</label>
+  <input type="text" id="sRepo" placeholder="your-repo">
+  <label for="sBranch">Branch (blank = default branch)</label>
+  <input type="text" id="sBranch" placeholder="main">
+  <label for="sToken">Personal access token (optional, only for private repos)</label>
+  <input type="password" id="sToken" placeholder="github_pat_…">
+  <div class="hint">Saved only in this browser. A fine-grained token with read-only "Contents" access is enough.</div>
+  <div class="row">
+    <button id="sCancel">Cancel</button>
+    <button id="sSave" style="border-color:var(--accent);color:var(--accent)">Save</button>
+  </div>
+</dialog>
+
+<script>
+/* ---------- Config ---------- */
+const FOLDER = "files/";            // only this path is searched
+const KEY = "ghfm-settings-v1";
+
+/* Auto-detect owner/repo when hosted on GitHub Pages (owner.github.io/repo/) */
+function detectPages() {
+  const m = location.hostname.match(/^(.+)\.github\.io$/i);
+  if (!m) return null;
+  const repo = location.pathname.split("/").filter(Boolean)[0];
+  return repo ? { owner: m[1], repo } : null;
+}
+
+function loadSettings() {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem(KEY)) || {}; } catch {}
+  const d = detectPages() || {};
+  return { owner: s.owner || d.owner || "", repo: s.repo || d.repo || "",
+           branch: s.branch || "", token: s.token || "" };
+}
+function saveSettings(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch {} }
+
+let cfg = loadSettings();
+let files = [];          // [{path, name, dir}]
+let current = null;      // currently open file
+let branchUsed = "";
+
+const $ = id => document.getElementById(id);
+const listEl = $("list"), qEl = $("q"), frame = $("frame");
+
+/* ---------- GitHub API ---------- */
+async function gh(path) {
+  const headers = { Accept: "application/vnd.github+json" };
+  if (cfg.token) headers.Authorization = "Bearer " + cfg.token;
+  const r = await fetch("https://api.github.com" + path, { headers });
+  if (!r.ok) {
+    let detail = "";
+    try { detail = (await r.json()).message || ""; } catch {}
+    if (r.status === 404) throw new Error("Not found. Check owner/repo/branch, or add a token if the repo is private.");
+    if (r.status === 403 && /rate limit/i.test(detail)) throw new Error("GitHub rate limit hit. Add a token in Settings or wait a bit.");
+    throw new Error(`GitHub error ${r.status}${detail ? ": " + detail : ""}`);
+  }
+  return r.json();
+}
+
+async function loadFiles() {
+  if (!cfg.owner || !cfg.repo) {
+    listEl.innerHTML = '<div class="msg">Set the owner and repository in Settings to begin.</div>';
+    $("count").textContent = ""; $("repoLabel").textContent = "";
+    $("settings").showModal();
+    return;
+  }
+  $("repoLabel").textContent = `${cfg.owner}/${cfg.repo}`;
+  listEl.innerHTML = '<div class="msg">Loading…</div>';
+  try {
+    branchUsed = cfg.branch;
+    if (!branchUsed) branchUsed = (await gh(`/repos/${cfg.owner}/${cfg.repo}`)).default_branch;
+    const tree = await gh(`/repos/${cfg.owner}/${cfg.repo}/git/trees/${encodeURIComponent(branchUsed)}?recursive=1`);
+    files = tree.tree
+      .filter(n => n.type === "blob" && n.path.startsWith(FOLDER) && /\.html?$/i.test(n.path))
+      .map(n => {
+        const rel = n.path.slice(FOLDER.length);
+        const i = rel.lastIndexOf("/");
+        return { path: n.path, name: rel.slice(i + 1), dir: i < 0 ? "" : rel.slice(0, i) };
+      })
+      .sort((a, b) => a.dir.localeCompare(b.dir) || a.name.localeCompare(b.name));
+    $("repoLabel").textContent = `${cfg.owner}/${cfg.repo} @ ${branchUsed}`;
+    if (tree.truncated) $("count").textContent = "Repo is very large; list may be incomplete.";
+    render();
+  } catch (e) {
+    files = [];
+    listEl.innerHTML = "";
+    const d = document.createElement("div");
+    d.className = "msg err"; d.textContent = e.message;
+    listEl.appendChild(d);
+    $("count").textContent = "";
+  }
+}
+
+/* ---------- List rendering + search ---------- */
+function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function highlight(text, terms) {
+  let out = esc(text);
+  for (const t of terms) {
+    if (!t) continue;
+    const re = new RegExp("(" + t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig");
+    out = out.replace(re, (m) => "\u0001" + m + "\u0002");
+  }
+  return out.replace(/\u0001/g, "<mark>").replace(/\u0002/g, "</mark>");
+}
+
+function render() {
+  const terms = qEl.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = files.filter(f => {
+    const hay = (f.dir + "/" + f.name).toLowerCase();
+    return terms.every(t => hay.includes(t));
+  });
+  $("count").textContent = `${shown.length} of ${files.length} HTML file${files.length === 1 ? "" : "s"} in ${FOLDER}`;
+  listEl.innerHTML = "";
+  if (!shown.length) {
+    listEl.innerHTML = '<div class="msg">' + (files.length ? "No matches." : `No HTML files found in ${FOLDER}`) + "</div>";
+    return;
+  }
+  let lastDir = null;
+  for (const f of shown) {
+    if (f.dir !== lastDir) {
+      const h = document.createElement("div");
+      h.className = "folder"; h.textContent = FOLDER + (f.dir ? f.dir + "/" : "");
+      listEl.appendChild(h);
+      lastDir = f.dir;
+    }
+    const b = document.createElement("button");
+    b.className = "item" + (current && current.path === f.path ? " active" : "");
+    b.innerHTML = highlight(f.name, terms);
+    b.title = f.path;
+    b.onclick = () => openFile(f);
+    listEl.appendChild(b);
+  }
+}
+
+/* ---------- Running a file ---------- */
+function pagesBase() {
+  // If this page lives in the same repo on GitHub Pages, files can be loaded directly.
+  const d = detectPages();
+  if (d && d.owner.toLowerCase() === cfg.owner.toLowerCase() && d.repo.toLowerCase() === cfg.repo.toLowerCase()) {
+    return `${location.origin}/${d.repo}/`;
+  }
+  return null;
+}
+
+async function fetchRawHtml(f) {
+  const headers = { Accept: "application/vnd.github.raw+json" };
+  if (cfg.token) headers.Authorization = "Bearer " + cfg.token;
+  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${f.path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(branchUsed)}`;
+  const r = await fetch(url, { headers });
+  if (!r.ok) throw new Error("Could not load file (" + r.status + ")");
+  return r.text();
+}
+
+function withBase(html, f) {
+  // Make relative links/assets resolve against the file's own folder via jsDelivr (served with correct MIME types).
+  const dir = f.path.slice(0, f.path.lastIndexOf("/") + 1);
+  const base = `https://cdn.jsdelivr.net/gh/${cfg.owner}/${cfg.repo}@${encodeURIComponent(branchUsed)}/${dir}`;
+  const tag = `<base href="${base}">`;
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, m => m + tag) : tag + html;
+}
+
+async function openFile(f) {
+  current = f;
+  $("curPath").textContent = f.path;
+  $("empty").hidden = true; frame.hidden = false;
+  $("reloadBtn").disabled = false; $("tabBtn").disabled = false;
+  render();
+  const pb = pagesBase();
+  try {
+    if (pb) {
+      frame.removeAttribute("srcdoc");
+      frame.src = pb + f.path.split("/").map(encodeURIComponent).join("/") + "?t=" + Date.now();
+    } else {
+      frame.removeAttribute("src");
+      frame.srcdoc = "<p style='font:14px system-ui;padding:16px;color:#666'>Loading…</p>";
+      frame.srcdoc = withBase(await fetchRawHtml(f), f);
+    }
+  } catch (e) {
+    frame.removeAttribute("src");
+    frame.srcdoc = `<p style="font:14px system-ui;padding:16px;color:#c62828">${esc(e.message)}</p>`;
+  }
+}
+
+async function openInTab() {
+  if (!current) return;
+  const pb = pagesBase();
+  if (pb) { window.open(pb + current.path.split("/").map(encodeURIComponent).join("/"), "_blank", "noopener"); return; }
+  try {
+    const html = withBase(await fetchRawHtml(current), current);
+    const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) { alert(e.message); }
+}
+
+/* ---------- Events ---------- */
+qEl.addEventListener("input", render);
+qEl.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    const first = listEl.querySelector(".item");
+    if (first) first.click();
+  }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "/" && document.activeElement.tagName !== "INPUT") { e.preventDefault(); qEl.focus(); }
+});
+$("refreshBtn").onclick = loadFiles;
+$("reloadBtn").onclick = () => current && openFile(current);
+$("tabBtn").onclick = openInTab;
+
+$("settingsBtn").onclick = () => {
+  $("sOwner").value = cfg.owner; $("sRepo").value = cfg.repo;
+  $("sBranch").value = cfg.branch; $("sToken").value = cfg.token;
+  $("settings").showModal();
+};
+$("sCancel").onclick = () => $("settings").close();
+$("sSave").onclick = () => {
+  cfg = { owner: $("sOwner").value.trim(), repo: $("sRepo").value.trim(),
+          branch: $("sBranch").value.trim(), token: $("sToken").value.trim() };
+  saveSettings(cfg);
+  $("settings").close();
+  loadFiles();
+};
+
+loadFiles();
+</script>
+</body>
+</html>

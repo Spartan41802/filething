@@ -119,7 +119,8 @@
 
 <script>
 /* ---------- Config ---------- */
-const FOLDER = "files/";            // only this path is searched
+const FOLDER = "";                  // "" = search the whole repo from the root (or set e.g. "files/")
+const SELF = decodeURIComponent(location.pathname.split("/").pop() || "");  // this page's own file name, hidden from the list
 const KEY = "ghfm-settings-v1";
 
 /* Auto-detect owner/repo when hosted on GitHub Pages (owner.github.io/repo/) */
@@ -176,7 +177,8 @@ async function loadFiles() {
     if (!branchUsed) branchUsed = (await gh(`/repos/${cfg.owner}/${cfg.repo}`)).default_branch;
     const tree = await gh(`/repos/${cfg.owner}/${cfg.repo}/git/trees/${encodeURIComponent(branchUsed)}?recursive=1`);
     files = tree.tree
-      .filter(n => n.type === "blob" && n.path.startsWith(FOLDER) && /\.html?$/i.test(n.path))
+      .filter(n => n.type === "blob" && n.path.startsWith(FOLDER) && /\.html?$/i.test(n.path)
+                   && !(SELF && /\.html?$/i.test(SELF) && n.path === SELF))
       .map(n => {
         const rel = n.path.slice(FOLDER.length);
         const i = rel.lastIndexOf("/");
@@ -215,17 +217,17 @@ function render() {
     const hay = (f.dir + "/" + f.name).toLowerCase();
     return terms.every(t => hay.includes(t));
   });
-  $("count").textContent = `${shown.length} of ${files.length} HTML file${files.length === 1 ? "" : "s"} in ${FOLDER}`;
+  $("count").textContent = `${shown.length} of ${files.length} HTML file${files.length === 1 ? "" : "s"}` + (FOLDER ? ` in ${FOLDER}` : " in repo");
   listEl.innerHTML = "";
   if (!shown.length) {
-    listEl.innerHTML = '<div class="msg">' + (files.length ? "No matches." : `No HTML files found in ${FOLDER}`) + "</div>";
+    listEl.innerHTML = '<div class="msg">' + (files.length ? "No matches." : "No HTML files found" + (FOLDER ? ` in ${FOLDER}` : " in this repo")) + "</div>";
     return;
   }
   let lastDir = null;
   for (const f of shown) {
     if (f.dir !== lastDir) {
       const h = document.createElement("div");
-      h.className = "folder"; h.textContent = FOLDER + (f.dir ? f.dir + "/" : "");
+      h.className = "folder"; h.textContent = (FOLDER + (f.dir ? f.dir + "/" : "")) || "/ (root)";
       listEl.appendChild(h);
       lastDir = f.dir;
     }
